@@ -1,3 +1,8 @@
+<img width="2752" height="1536" alt="תמונת שער" src="https://github.com/user-attachments/assets/8c649695-3f7e-4e8d-8115-62be89d21ce6" />
+
+
+https://github.com/user-attachments/assets/f79ba140-740d-499e-995b-090082a2993c
+
 # Line-Follower-Robot
 ESP32-based 4WD Line Follower Robot using PID control, CNY70 sensors, and L293D drivers.
 # 🚗 4WD Line Follower Robot (רכב עוקב קו 4X4)
