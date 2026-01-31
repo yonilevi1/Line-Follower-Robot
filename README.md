@@ -11,8 +11,6 @@ https://github.com/user-attachments/assets/3a504218-b252-45cd-9f19-89ccd04b56e9
 
 https://github.com/user-attachments/assets/329b4c55-3dcf-4002-aa26-44d349f2d767 
 
-[ספר פרויקט.pdf](https://github.com/user-attachments/files/24983380/default.pdf)
-
 
 
 
@@ -22,6 +20,8 @@ ESP32-based 4WD Line Follower Robot using PID control, CNY70 sensors, and L293D 
 
 ## 📌 אודות הפרויקט
 פרויקט זה מציג פיתוח של רובוט אוטונומי בעל הנעה ארבע-גלגלית (4WD), המבוסס על בקר **ESP32**. הרובוט עוקב אחרי נתיב באמצעות אלגוריתם **PID** ומערך חיישנים, תוך שימוש בכוח משופר ויציבות הודות לארבעת המנועים.
+
+[ספר פרויקט.pdf](https://github.com/user-attachments/files/24983380/default.pdf)
 
 ## 🛠️ רכיבים וחומרה (Hardware)
 הרובוט נבנה בתצורה חזקה הכוללת:
