@@ -8,11 +8,10 @@
 // ----------------------------------------------------
 // הגדרות כלליות
 // ----------------------------------------------------
-const char* DEV_NAME = "ESP32_Pro_Racer_v2";
+const char* DEV_NAME = "ESP32_Pro_Racer";
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
-// זמן מחזור קבוע ל-PID (במילישניות) - קריטי ליציבות הנגזרת!
 const unsigned long PID_INTERVAL_MS = 10; 
 
 // ----------------------------------------------------
@@ -33,21 +32,15 @@ int LINE_SEEN_TH = 300;
 // ----------------------------------------------------
 // מנועים: L298N
 // ----------------------------------------------------
-const int L_A_IN1 = 12;
-const int L_A_IN2 = 14;
-const int L_A_EN  = 13;
+// צד שמאל
+const int L_EN    = 13; // PWM (EN_A + EN_B)
+const int L_DIR_1 = 12; // (IN1 + IN4)
+const int L_DIR_2 = 14; // (IN2 + IN3)
 
-const int L_B_IN3 = 16;
-const int L_B_IN4 = 17;
-const int L_B_EN  = 4;
-
-const int R_A_IN1 = 26;
-const int R_A_IN2 = 27;
-const int R_A_EN  = 25;
-
-const int R_B_IN3 = 18;
-const int R_B_IN4 = 19;
-const int R_B_EN  = 5;
+// צד ימין
+const int R_EN    = 25; // PWM (EN_A + EN_B)
+const int R_DIR_1 = 26; // (IN1 + IN4)
+const int R_DIR_2 = 27; // (IN2 + IN3)
 
 // ----------------------------------------------------
 // PWM Settings
@@ -58,9 +51,9 @@ const int PWM_RES  = 8;   // 0..255
 // ----------------------------------------------------
 // PID Constants
 // ----------------------------------------------------
-float Kp = 0.35f;
+float Kp = 0.7f;
 float Ki = 0.00f;
-float Kd = 0.85f; 
+float Kd = 3.0f; 
 
 float integral = 0.0f;
 float lastError = 0.0f;
@@ -73,8 +66,8 @@ bool isRunning = false;
 // ----------------------------------------------------
 // הגדרות מהירות ופניות (Adaptive)
 // ----------------------------------------------------
-int MIN_SPEED = 120;
-int MAX_SPEED_SET = 230;
+int MIN_SPEED = 160;
+int MAX_SPEED_SET = 210;
 int FRONT_WEAK_TH = 520; // סף לזיהוי סיבוב חד
 float SPEED_BY_ERR = 0.10f; // מקדם האטה בסיבוב
 float Kp_TURN_MULT = 1.40f; // בוסט להיגוי בסיבוב חד
@@ -102,45 +95,46 @@ static inline float clampf(float x, float lo, float hi) {
 }
 
 // ----------------------------------------------------
-// פונקציות מנוע (LEDC New API)
+// פונקציות מנוע
 // ----------------------------------------------------
-void motorWrite(int in1, int in2, int enPin, int pwmSigned) {
-  int pwm = pwmSigned;
 
-  if (pwmSigned >= 0) {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
+// פונקציית עזר לשליטה בצד אחד
+void driveSide(int enPin, int pin1, int pin2, int pwmSigned) {
+  int speed = abs(pwmSigned);
+  speed = clampi(speed, 0, 255);
+
+  if (pwmSigned > 0) {
+    // נסיעה קדימה
+    digitalWrite(pin1, HIGH);
+    digitalWrite(pin2, LOW);
+  } else if (pwmSigned < 0) {
+    // נסיעה אחורה
+    digitalWrite(pin1, LOW);
+    digitalWrite(pin2, HIGH);
   } else {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    pwm = -pwmSigned;
+    // עצירה
+    digitalWrite(pin1, LOW);
+    digitalWrite(pin2, LOW);
   }
 
-  pwm = clampi(pwm, 0, 255);
-  ledcWrite(enPin, pwm);
-}
-
-void setLeft(int pwmSigned) {
-  motorWrite(L_A_IN1, L_A_IN2, L_A_EN, pwmSigned);
-  motorWrite(L_B_IN3, L_B_IN4, L_B_EN, pwmSigned);
-}
-
-void setRight(int pwmSigned) {
-  motorWrite(R_A_IN1, R_A_IN2, R_A_EN, pwmSigned);
-  motorWrite(R_B_IN3, R_B_IN4, R_B_EN, pwmSigned);
+  // שליחת ה-PWM לפין ה-Enable המשותף
+  ledcWrite(enPin, speed);
 }
 
 void setMotors(int leftSigned, int rightSigned) {
   leftSigned  = clampi(leftSigned,  -255, 255);
   rightSigned = clampi(rightSigned, -255, 255);
-  setLeft(leftSigned);
-  setRight(rightSigned);
+
+  // שליחה לצד שמאל
+  driveSide(L_EN, L_DIR_1, L_DIR_2, leftSigned);
+  
+  // שליחה לצד ימין
+  driveSide(R_EN, R_DIR_1, R_DIR_2, rightSigned);
 }
 
 // ----------------------------------------------------
 // קריאת חיישנים (עם סינון רעשים)
 // ----------------------------------------------------
-// פונקציה חדשה: קריאה ממוצעת להפחתת רעשי ADC
 int readSmooth(int pin) {
   const int SAMPLES = 5;
   long sum = 0;
@@ -152,7 +146,7 @@ int readSmooth(int pin) {
 
 // נרמול קריאה 0-1000
 int readWhiteStrengthCal(int pin, int black, int white) {
-  int v = readSmooth(pin); // שימוש בקריאה המסוננת
+  int v = readSmooth(pin);
   if (white == black) return 0;
   long w = map(v, black, white, 0, 1000);
   return clampi((int)w, 0, 1000);
@@ -164,7 +158,7 @@ bool lineSeen(int wl, int wc, int wr) {
 
 float computeError(int wl, int wc, int wr) {
   long denom = (long)wl + (long)wc + (long)wr;
-  if (denom < 30) return lastError; // הגנה
+  if (denom < 30) return lastError; 
   long num = (long)wl * (-1000) + (long)wc * 0 + (long)wr * (1000);
   return (float)num / (float)denom;
 }
@@ -230,19 +224,14 @@ void processCommand(String msg) {
     return; 
   }
   
-  // --- כאן הוספנו את התיקון ---
   if (msg == "0" || msg == "x") { 
     isRunning = false; 
     setMotors(0, 0); 
-    
-    // איפוס הזיכרון כדי למנוע "בעיטה" בהפעלה הבאה
     lastError = 0.0f;
     integral = 0.0f;
-    
     Serial.println("STOP & RESET"); 
     return; 
   }
-  // -----------------------------
 
   if (msg == "save")   { saveAll(); return; }
   if (msg == "load")   { loadAll(); return; }
@@ -272,7 +261,8 @@ void processCommand(String msg) {
   else if (key == "t") { LINE_SEEN_TH = iv; saveAll(); }
   else if (key == "min") { MIN_SPEED = iv; saveAll(); }
   else if (key == "max") { MAX_SPEED_SET = iv; saveAll(); }
-  
+  else if (key == "fw") { FRONT_WEAK_TH = iv; saveAll(); } 
+  else if (key == "km") { Kp_TURN_MULT = f; saveAll(); }
   Serial.println("OK");
 }
 
@@ -290,21 +280,22 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 void setup() {
   Serial.begin(115200);
 
-  pinMode(L_A_IN1, OUTPUT); pinMode(L_A_IN2, OUTPUT);
-  pinMode(L_B_IN3, OUTPUT); pinMode(L_B_IN4, OUTPUT);
-  pinMode(R_A_IN1, OUTPUT); pinMode(R_A_IN2, OUTPUT);
-  pinMode(R_B_IN3, OUTPUT); pinMode(R_B_IN4, OUTPUT);
+  // הגדרת פינים לכיוון (דיגיטליים)
+  pinMode(L_DIR_1, OUTPUT);
+  pinMode(L_DIR_2, OUTPUT);
+  pinMode(R_DIR_1, OUTPUT);
+  pinMode(R_DIR_2, OUTPUT);
+
+  // הגדרת פינים למהירות (PWM)
+  ledcAttach(L_EN, PWM_FREQ, PWM_RES);
+  ledcAttach(R_EN, PWM_FREQ, PWM_RES);
   
+  // חיישנים
   pinMode(PIN_S_L, INPUT);
   pinMode(PIN_S_C, INPUT);
   pinMode(PIN_S_R, INPUT);
 
   analogReadResolution(12);
-
-  ledcAttach(L_A_EN, PWM_FREQ, PWM_RES);
-  ledcAttach(L_B_EN, PWM_FREQ, PWM_RES);
-  ledcAttach(R_A_EN, PWM_FREQ, PWM_RES);
-  ledcAttach(R_B_EN, PWM_FREQ, PWM_RES);
 
   setMotors(0, 0);
   loadAll();
@@ -321,38 +312,37 @@ void setup() {
   pService->start();
   BLEDevice::getAdvertising()->start();
 
-  Serial.println("System Ready. PID Loop: 10ms Fixed. Reset Logic Active.");
+  Serial.println("System Ready. Wiring: Parallel Control (EN=PWM).");
 }
 
 // ----------------------------------------------------
 // Main Loop
 // ----------------------------------------------------
 void loop() {
-  // 1. טיפול בתקשורת (רץ תמיד, ללא עיכוב)
+  // 1. טיפול בתקשורת
   if (Serial.available()) {
     processCommand(Serial.readStringUntil('\n'));
   }
 
-  // 2. בקרת זמן מדויקת (100Hz)
+  // 2. בקרת זמן מדויקת
   unsigned long now = millis();
   if (now < nextPidTime) {
-    return; // עדיין לא הגיע הזמן - שחרור המעבד
+    return; 
   }
-  nextPidTime = now + PID_INTERVAL_MS; // קביעת הזמן הבא
+  nextPidTime = now + PID_INTERVAL_MS; 
 
   // 3. קריאת חיישנים
   int wl = readWhiteStrengthCal(PIN_S_L, BLACK_L, WHITE_L);
   int wc = readWhiteStrengthCal(PIN_S_C, BLACK_C, WHITE_C);
   int wr = readWhiteStrengthCal(PIN_S_R, BLACK_R, WHITE_R);
 
-  // הדפסות דיבאג בקצב נמוך יותר שלא יפריעו
   if (DEBUG_PRINT && (now - lastPrint > 250)) {
       Serial.printf("S: %d %d %d | Err: %.2f\n", wl, wc, wr, lastError);
       lastPrint = now;
   }
 
   if (!isRunning) {
-    setMotors(0, 0); // וודא עצירה
+    setMotors(0, 0); 
     return;
   }
 
@@ -363,45 +353,40 @@ void loop() {
   // --- מצב חירום: איבוד קו ---
   if (!seen) {
     integral = 0; 
-    
-    // סיבוב במקום לכיוון התיקון האחרון
     int turnPwm = RECOVERY_TURN;
     if (lastError > 0) { 
        setMotors(RECOVERY_BASE + turnPwm, RECOVERY_BASE - turnPwm);
     } else { 
        setMotors(RECOVERY_BASE - turnPwm, RECOVERY_BASE + turnPwm);
     }
-    return; // יציאה מהלולאה
+    return; 
   }
 
   // --- חישוב PID ---
-
-  // חישוב מהירות בסיס דינאמי
   float absErr = fabs(error);
   bool frontWeak = (wc < FRONT_WEAK_TH);
   
-  // ככל שהשגיאה גדולה -> המהירות יורדת
+  // מהירות דינאמית
   int dynSpeed = MAX_SPEED_SET - (int)(SPEED_BY_ERR * absErr);
-  if (frontWeak) dynSpeed = (int)(dynSpeed * 0.80f); // האטה נוספת בסיבוב חד
+  if (frontWeak) dynSpeed = (int)(dynSpeed * 0.80f); 
   dynSpeed = clampi(dynSpeed, MIN_SPEED, MAX_SPEED_SET);
 
-  // הגברת Kp בסיבובים חדים (אם החיישן האמצעי חלש)
+  // הגברת היגוי בסיבובים חדים
   float effectiveKp = Kp;
   if (frontWeak) effectiveKp = Kp * Kp_TURN_MULT;
 
-  // אינטגרל (רק בשגיאות קטנות)
+  // אינטגרל
   if (absErr < 200) integral += error;
   else integral = 0;
   integral = clampf(integral, -1000.0f, 1000.0f);
 
-  // נגזרת (ללא חלוקה ב-dt כי הזמן קבוע)
+  // נגזרת
   float Dterm = (error - lastError); 
   lastError = error;
 
   // נוסחת הבקרה
   float u = (effectiveKp * error) + (Ki * integral) + (Kd * Dterm);
 
-  // הפעלת מנועים
   int left  = dynSpeed + (int)u;
   int right = dynSpeed - (int)u;
 
